@@ -101,10 +101,10 @@ const mockHistoryData = {
   
     return (
         <View style={styles.card}>
-          <View style={styles.headerRow}>
+          {/* <View style={styles.headerRow}>
             <Icon name="chart-line" size={24} color="#4a90e2" />
             <Text style={styles.headerText}>Water Consumption History</Text>
-          </View>
+          </View> */}
   
           <View style={styles.timeRangeSelector}>
             <TouchableOpacity

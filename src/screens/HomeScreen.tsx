@@ -14,7 +14,7 @@ function HomeScreen() {
     throw new Error('DeviceContext is not provided. Make sure to wrap your component with DeviceContext.Provider.');
   }
 
-  const { selectedDevice } = deviceContext;
+  const { setSelectedDevice, selectedDevice } = deviceContext;
 
   // Environmental sensing service and characteristics UUIDs
   const ENVIRONMENTAL_SENSING_SERVICE_UUID = '181A';
@@ -66,6 +66,27 @@ function HomeScreen() {
       };
     }
   }, [selectedDevice]);
+
+
+    // Check if the device is still connected every 3 seconds
+    useEffect(() => {
+      const interval = setInterval(async () => {
+        if (selectedDevice) {
+          try {
+            const isConnected = await selectedDevice.isConnected();
+            if (!isConnected) {
+              console.log('Device disconnected');
+              setSelectedDevice(null);
+              Alert.alert('Disconnected', 'The device has been disconnected.');
+            }
+          } catch (error) {
+            console.log('Error checking device connection:', error);
+          }
+        }
+      }, 3000); // Check every 3 seconds
+  
+      return () => clearInterval(interval); // Cleanup interval on component unmount
+    }, [selectedDevice]);
 
   const toggleMode = async () => {
     if (!selectedDevice) return;

@@ -93,6 +93,24 @@ const { selectedDevice, setSelectedDevice } = deviceContext;
     }
   }, [selectedDevice]);
 
+  // check if the device is still connected
+  useEffect(() => {
+    if (selectedDevice) {
+      const interval = setInterval(() => {
+        selectedDevice.isConnected().then((isConnected) => {
+          if (!isConnected) {
+            setStatus('Offline');
+            setDeviceId('Not connected');
+            setLastUpdated('N/A');
+            setSensorValue(null);
+          }
+        });
+      }, 3000);
+
+      return () => clearInterval(interval);
+    }
+  }, [selectedDevice]);
+
   const requestPermissions = async () => {
     // Request permissions for Android 12 and above
     if (Platform.OS === 'android' && Platform.Version >= 31) {
