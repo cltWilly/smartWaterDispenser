@@ -22,6 +22,10 @@ import { PermissionsAndroid, Platform } from 'react-native';
 
 const screenWidth = Dimensions.get('window').width;
 
+
+import { NativeModules } from 'react-native';
+const { BluetoothModule } = NativeModules;
+
 // BLE UUIDs from your ESP32 code
 const ENVIRONMENTAL_SENSING_SERVICE_UUID = '181A';
 const SENSOR_DATA_CHARACTERISTIC_UUID = '2A6E';
@@ -47,8 +51,8 @@ function ScanScreen() {
 const { selectedDevice, setSelectedDevice } = deviceContext;
 
   useEffect(() => {
-    // Request necessary permissions for BLE on mount
-    requestPermissions();
+    // // Request necessary permissions for BLE on mount
+    // requestPermissions();
 
     // Setup event listener for BLE state changes
     const subscription = bleManager.onStateChange((state) => {
@@ -113,31 +117,42 @@ const { selectedDevice, setSelectedDevice } = deviceContext;
 
   const requestPermissions = async () => {
     // Request permissions for Android 12 and above
-    if (Platform.OS === 'android' && Platform.Version >= 31) {
-      try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-          {
-            title: 'Bluetooth Scan Permission',
-            message: 'This app needs access to your Bluetooth to scan for devices.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
-        );
-        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-          console.log('Bluetooth scan permission granted');
-        } else {
-          console.log('Bluetooth scan permission denied');
-        }
-      } catch (err) {
-        console.warn(err);
+    // if (Platform.OS === 'android' && Platform.Version >= 31) {
+    //   try {
+    //     const granted = await PermissionsAndroid.request(
+    //       PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+    //       {
+    //         title: 'Bluetooth Scan Permission',
+    //         message: 'This app needs access to your Bluetooth to scan for devices.',
+    //         buttonNeutral: 'Ask Me Later',
+    //         buttonNegative: 'Cancel',
+    //         buttonPositive: 'OK',
+    //       }
+    //     );
+    //     if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+    //       console.log('Bluetooth scan permission granted');
+    //     } else {
+    //       console.log('Bluetooth scan permission denied');
+    //     }
+    //   } catch (err) {
+    //     console.warn(err);
+    //   }
+    // }
+    // console.log('Requesting BLE permissions');
+    BluetoothModule.requestBluetooth((enabled: boolean) => {
+      if (enabled) {
+        console.log('Bluetooth is enabled or request sent');
+      } else {
+        Alert.alert('Bluetooth not supported');
       }
-    }
-    console.log('Requesting BLE permissions');
+    });
   };
 
   const scanForDevices = () => {
+    // check for bluetooth permission first
+    requestPermissions();
+
+
     setIsScanning(true);
     setDevices([]);
 
