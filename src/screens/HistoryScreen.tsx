@@ -10,13 +10,15 @@ const screenWidth = Dimensions.get('window').width;
 function HistoryScreen() {
   const [timeRange, setTimeRange] = useState('daily');
   const [isLoading, setIsLoading] = useState(false);
-  type ChartData = {
+  const [chartData, setChartData] = useState<{
     labels: string[];
     datasets: { data: number[]; color: () => string; strokeWidth: number }[];
     legend: string[];
-  };
-  
-  const [chartData, setChartData] = useState<ChartData | null>(null);
+  }>({
+    labels: [],
+    datasets: [{ data: [], color: () => '#4a90e2', strokeWidth: 2 }],
+    legend: ['Sensor Value']
+  });
   const [lastUpdated, setLastUpdated] = useState('N/A');
   const [stats, setStats] = useState({
     total: 0,
@@ -27,8 +29,18 @@ function HistoryScreen() {
 
   const deviceContext = useContext(DeviceContext);
 
+  // Safely handle missing context
   if (!deviceContext) {
-    throw new Error('DeviceContext is not provided. Make sure to wrap your component with DeviceContext.Provider.');
+    console.warn('DeviceContext is not provided');
+    return (
+      <View style={styles.notConnectedContainer}>
+        <Icon name="exclamation-triangle" size={64} color="#ff6b6b" />
+        <Text style={styles.notConnectedTitle}>Context Error</Text>
+        <Text style={styles.notConnectedText}>
+          DeviceContext is not provided. Make sure to wrap your component with DeviceContext.Provider.
+        </Text>
+      </View>
+    );
   }
 
   const { selectedDevice } = deviceContext;
@@ -39,10 +51,10 @@ function HistoryScreen() {
   const COMMAND_CHARACTERISTIC_UUID = '2A3D';
 
   // Function to convert raw sensor values to liters
-  const sensorToLiters = (sensorValue: number) => {
-    // const normalized = Math.max(0, (2000 - sensorValue) / 10);
-    // return parseFloat(normalized.toFixed(1));
-    return sensorValue;
+  const sensorToLiters = (sensorValue: string) => {
+    // Return the original value for now
+    // You can implement your conversion logic here
+    return parseFloat(sensorValue) || 0; // Ensure we return a number even if data is invalid
   };
 
   useEffect(() => {
@@ -65,41 +77,86 @@ function HistoryScreen() {
       if (timeRange === 'weekly') entriesToRequest = 7 * 24; // 7 days
       if (timeRange === 'monthly') entriesToRequest = 30 * 24; // 30 days
 
-      // Send command to request history data
-      await selectedDevice.writeCharacteristicWithResponseForService(
-        ENVIRONMENTAL_SENSING_SERVICE_UUID,
-        COMMAND_CHARACTERISTIC_UUID,
-        btoa(`GET_HISTORY_DATA`)
-      );
+      // Send command to request history data - with error handling
+      try {
+        await selectedDevice.writeCharacteristicWithResponseForService(
+          ENVIRONMENTAL_SENSING_SERVICE_UUID,
+          COMMAND_CHARACTERISTIC_UUID,
+          btoa(`GET_HISTORY_DATA`)
+        );
+      } catch (writeError) {
+        console.log('Error writing to characteristic:', writeError);
+        // Continue anyway, as some devices might not require this step
+      }
 
       // Wait a moment for the device to process the command
       await new Promise((resolve) => setTimeout(resolve, 500));
 
-      // Subscribe to history data updates
-      const characteristic = await selectedDevice.readCharacteristicForService(
-        ENVIRONMENTAL_SENSING_SERVICE_UUID,
-        HISTORY_CHARACTERISTIC_UUID
-      );
-      
-      if (characteristic?.value) {
-        const decoded = atob(characteristic.value);
-        console.log('Received history data:', decoded);
-        const historyValues = decoded.split(',').map(Number);
-        const processedData = processHistoryData(historyValues);
-        setChartData(processedData);
-        setLastUpdated(new Date().toLocaleTimeString());
+      // Read history data with proper error handling
+      try {
+        const characteristic = await selectedDevice.readCharacteristicForService(
+          ENVIRONMENTAL_SENSING_SERVICE_UUID,
+          HISTORY_CHARACTERISTIC_UUID
+        );
+        
+        if (characteristic?.value) {
+          try {
+            const decoded = atob(characteristic.value);
+            console.log('Received history data:', decoded);
+            
+            // Safely parse data
+            let historyValues: number[] = [];
+            try {
+              historyValues = decoded.split(',').map(val => {
+                const num = Number(val);
+                return isNaN(num) ? 0 : num;
+              });
+            } catch (parseError) {
+              console.log('Error parsing history data:', parseError);
+              historyValues = [];
+            }
+            
+            const processedData = processHistoryData(historyValues);
+            setChartData(processedData);
+            setLastUpdated(new Date().toLocaleTimeString());
+          } catch (decodeError) {
+            console.log('Error decoding characteristic value:', decodeError);
+            Alert.alert('Error', 'Failed to decode history data from device.');
+          }
+        } else {
+          console.log('No characteristic value received');
+          // Initialize with empty data
+          setChartData({
+            labels: [],
+            datasets: [{ data: [], color: () => '#4a90e2', strokeWidth: 2 }],
+            legend: ['Sensor Value']
+          });
+        }
+      } catch (readError) {
+        console.log('Error reading characteristic:', readError);
+        Alert.alert('Error', 'Failed to read history data from device.');
       }
+      
       setIsLoading(false);
     } catch (error) {
-      console.log('Error fetching history data:', error);
+      console.log('Error in fetchHistoryData:', error);
       Alert.alert('Error', 'Failed to fetch history data.');
+      
+      // Initialize with empty data on error
+      setChartData({
+        labels: [],
+        datasets: [{ data: [], color: () => '#4a90e2', strokeWidth: 2 }],
+        legend: ['Sensor Value']
+      });
+      
       setIsLoading(false);
     }
   };
 
-  const processHistoryData = (historyValues: number[]) => {
+  const processHistoryData = (historyValues: string[] | number[]) => {
     if (!historyValues || historyValues.length === 0) {
-      Alert.alert('Error', 'No history data available from the device.');
+      console.log('No history data available');
+      // Return safe default data structure
       return {
         labels: [],
         datasets: [{ data: [], color: () => '#4a90e2', strokeWidth: 2 }],
@@ -107,49 +164,75 @@ function HistoryScreen() {
       };
     }
   
-    const literValues = historyValues.map(sensorToLiters);
+    const literValues = (historyValues as string[]).map(sensorToLiters);
   
     let labels: string[] = [];
     let data: number[] = [];
   
-    if (timeRange === 'daily') {
-      const hours = Math.min(24, literValues.length);
-      for (let i = 0; i < hours; i++) {
-        const labelHour = 23 - i;
-        labels.push(i % 2 === 0 ? `${labelHour}h` : ''); // Label only every 2 hours
-        data.push(literValues[i]);
-      }
-      labels = labels.reverse();
-      data = data.reverse();
-    } else if (timeRange === 'weekly') {
-      const days = Math.min(7, Math.ceil(literValues.length / 24)); // Use the available number of days
-      for (let i = 0; i < days; i++) {
-        labels.push(`Day ${days - i}`);
-        let daySum = 0;
-        for (let j = 0; j < 24 && i * 24 + j < literValues.length; j++) {
-          daySum += literValues[i * 24 + j];
+    try {
+      if (timeRange === 'daily') {
+        const hours = Math.min(24, literValues.length);
+        for (let i = 0; i < hours; i++) {
+          const labelHour = 23 - i;
+          labels.push(i % 2 === 0 ? `${labelHour}h` : ''); // Label only every 2 hours
+          data.push(literValues[i] || 0); // Use 0 if undefined
         }
-        data.push(parseFloat((daySum / 24).toFixed(1))); // Average for the day
-      }
-      labels = labels.reverse();
-      data = data.reverse();
-    } else if (timeRange === 'monthly') {
-      const weeks = Math.min(4, Math.ceil(literValues.length / (24 * 7))); // Use the available number of weeks
-      for (let i = 0; i < weeks; i++) {
-        labels.push(`Week ${weeks - i}`);
-        let weekSum = 0;
-        for (let j = 0; j < 7 * 24 && i * 7 * 24 + j < literValues.length; j++) {
-          weekSum += literValues[i * 7 * 24 + j];
+        labels = labels.reverse();
+        data = data.reverse();
+      } else if (timeRange === 'weekly') {
+        const days = Math.min(7, Math.ceil(literValues.length / 24)); 
+        for (let i = 0; i < days; i++) {
+          labels.push(`Day ${days - i}`);
+          let daySum = 0;
+          let validValues = 0;
+          for (let j = 0; j < 24 && i * 24 + j < literValues.length; j++) {
+            const value = literValues[i * 24 + j];
+            if (!isNaN(value)) {
+              daySum += value;
+              validValues++;
+            }
+          }
+          data.push(validValues > 0 ? parseFloat((daySum / validValues).toFixed(1)) : 0);
         }
-        data.push(parseFloat((weekSum / (7 * 24)).toFixed(1))); // Average for the week
+        labels = labels.reverse();
+        data = data.reverse();
+      } else if (timeRange === 'monthly') {
+        const weeks = Math.min(4, Math.ceil(literValues.length / (24 * 7)));
+        for (let i = 0; i < weeks; i++) {
+          labels.push(`Week ${weeks - i}`);
+          let weekSum = 0;
+          let validValues = 0;
+          for (let j = 0; j < 7 * 24 && i * 7 * 24 + j < literValues.length; j++) {
+            const value = literValues[i * 7 * 24 + j];
+            if (!isNaN(value)) {
+              weekSum += value;
+              validValues++;
+            }
+          }
+          data.push(validValues > 0 ? parseFloat((weekSum / validValues).toFixed(1)) : 0);
+        }
+        labels = labels.reverse();
+        data = data.reverse();
       }
-      labels = labels.reverse();
-      data = data.reverse();
+    } catch (error) {
+      console.log('Error processing history data:', error);
+      // Use safe defaults
+      labels = [];
+      data = [];
     }
   
-    const total = data.reduce((sum, value) => sum + value, 0);
-    const average = data.length > 0 ? total / data.length : 0;
-    const highest = data.length > 0 ? Math.max(...data) : 0;
+    // Calculate stats safely
+    let total = 0;
+    let average = 0;
+    let highest = 0;
+  
+    try {
+      total = data.reduce((sum, value) => sum + (isNaN(value) ? 0 : value), 0);
+      average = data.length > 0 ? total / data.length : 0;
+      highest = data.length > 0 ? Math.max(...data.map(v => isNaN(v) ? 0 : v)) : 0;
+    } catch (error) {
+      console.log('Error calculating stats:', error);
+    }
   
     setStats({
       total: parseFloat(total.toFixed(1)),
@@ -177,7 +260,7 @@ function HistoryScreen() {
   if (!selectedDevice) {
     return (
       <View style={styles.notConnectedContainer}>
-        <Icon name="water-alert" size={64} color="#ff6b6b" />
+        <Icon name="exclamation-circle" size={64} color="#ff6b6b" />
         <Text style={styles.notConnectedTitle}>Device Not Connected</Text>
         <Text style={styles.notConnectedText}>
           Go to the "Scan" tab to connect to your water monitoring device.
@@ -226,14 +309,21 @@ function HistoryScreen() {
           </View>
         ) : (
           <View style={styles.chartContainer}>
-            <LineChart
-              data={chartData || { labels: [], datasets: [{ data: [] }] }}
-              width={screenWidth - 64}
-              height={220}
-              chartConfig={chartConfig}
-              bezier
-              style={styles.chart}
-            />
+            {chartData && chartData.datasets && chartData.datasets[0] && chartData.datasets[0].data && chartData.datasets[0].data.length > 0 ? (
+              <LineChart
+                data={chartData}
+                width={screenWidth - 64}
+                height={220}
+                chartConfig={chartConfig}
+                bezier
+                style={styles.chart}
+              />
+            ) : (
+              <View style={styles.noDataContainer}>
+                <Icon name="chart-bar" size={48} color="#ccc" />
+                <Text style={styles.noDataText}>No data available</Text>
+              </View>
+            )}
             <View style={styles.infoRow}>
               <Text style={styles.label}>Last Updated:</Text>
               <Text style={styles.value}>{lastUpdated}</Text>
@@ -414,11 +504,19 @@ const styles = StyleSheet.create({
     maxWidth: 280,
     marginBottom: 16,
   },
-  notConnectedSubtext: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
+  noDataContainer: {
+    height: 220,
+    width: screenWidth - 64,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f9f9f9',
+    borderRadius: 16,
   },
+  noDataText: {
+    fontSize: 16,
+    color: '#999',
+    marginTop: 12,
+  }
 });
 
 export default HistoryScreen;
