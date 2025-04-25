@@ -116,43 +116,63 @@ const { selectedDevice, setSelectedDevice } = deviceContext;
   }, [selectedDevice]);
 
   const requestPermissions = async () => {
-    // Request permissions for Android 12 and above
-    // if (Platform.OS === 'android' && Platform.Version >= 31) {
-    //   try {
-    //     const granted = await PermissionsAndroid.request(
-    //       PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-    //       {
-    //         title: 'Bluetooth Scan Permission',
-    //         message: 'This app needs access to your Bluetooth to scan for devices.',
-    //         buttonNeutral: 'Ask Me Later',
-    //         buttonNegative: 'Cancel',
-    //         buttonPositive: 'OK',
-    //       }
-    //     );
-    //     if (granted === PermissionsAndroid.RESULTS.GRANTED) {
-    //       console.log('Bluetooth scan permission granted');
-    //     } else {
-    //       console.log('Bluetooth scan permission denied');
-    //     }
-    //   } catch (err) {
-    //     console.warn(err);
-    //   }
-    // }
-    // console.log('Requesting BLE permissions');
-    BluetoothModule.requestBluetooth((enabled: boolean) => {
-      if (enabled) {
-        console.log('Bluetooth is enabled or request sent');
-      } else {
-        Alert.alert('Bluetooth not supported');
+    // For Android 12+ (API level 31+)
+    if (Platform.OS === 'android' && Platform.Version >= 31) {
+      try {
+        // Request BLUETOOTH_CONNECT permission first
+        const connectPermission = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          {
+            title: 'Bluetooth Connect Permission',
+            message: 'This app needs to connect to Bluetooth devices.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        
+        // Also request BLUETOOTH_SCAN permission
+        const scanPermission = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          {
+            title: 'Bluetooth Scan Permission',
+            message: 'This app needs to scan for Bluetooth devices.',
+            buttonNeutral: 'Ask Me Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        
+        if (connectPermission !== PermissionsAndroid.RESULTS.GRANTED || 
+            scanPermission !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert('Permission Error', 'Bluetooth permissions are required');
+          return false;
+        }
+      } catch (err) {
+        console.warn(err);
+        return false;
       }
+    }
+    
+    // After getting runtime permissions, use BluetoothModule
+    return new Promise((resolve) => {
+      BluetoothModule.requestBluetooth((enabled: any) => {
+        if (enabled) {
+          console.log('Bluetooth is enabled or request sent');
+          resolve(true);
+        } else {
+          Alert.alert('Bluetooth not supported');
+          resolve(false);
+        }
+      });
     });
   };
 
-  const scanForDevices = () => {
+  const scanForDevices = async () => {
     // check for bluetooth permission first
-    requestPermissions();
-
-
+    const permissionsGranted = await requestPermissions();
+    if (!permissionsGranted) return;
+  
     setIsScanning(true);
     setDevices([]);
 
