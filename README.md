@@ -2,7 +2,7 @@
 This is a smart water dispenser app that allows users to control their water dispenser remotely.
 
 
-✨ Features:
+# Features:
 
 📡 Remote control of your water dispenser – via bluetooth (wifi cooming in some next major update)
 
